@@ -36,6 +36,7 @@ class GTFS
     lines = []
     lines_total = 0
     lines_max = 100000
+    is_last_batch = false
     IO.foreach(gtfs_file, :encoding => 'bom|utf-8') do |line|
       if headers.nil?
         headers = line.parse_csv
@@ -45,17 +46,18 @@ class GTFS
       lines.push(line)
       if lines.size >= lines_max
         lines_total += lines_max
-        method_response = self.send(method, headers, lines, method_response, method_args)
+        method_response = self.send(method, headers, lines, method_response, is_last_batch, method_args)
         Profiler.save("DONE #{lines_total} lines")
         lines = []
       end
     end
-    method_response = self.send(method, headers, lines, method_response, method_args)
+    is_last_batch = true
+    method_response = self.send(method, headers, lines, method_response, is_last_batch, method_args)
     
     return method_response
   end
   
-  def self.gtfs_to_sqlite(headers, lines, json, main_args)
+  def self.gtfs_to_sqlite(headers, lines, json, is_last_batch, main_args)
     table_name = main_args['table_name']
     table_columns = main_args['table_config']['table_columns']
 
@@ -95,7 +97,7 @@ class GTFS
     @db.commit
   end
 
-  def self.shapes_to_geojson(headers, lines, features, main_args)
+  def self.shapes_to_geojson(headers, lines, features, is_last_batch, main_args)
     if features.nil?
       features = {}
     end
@@ -103,6 +105,10 @@ class GTFS
     shapes_color = self::getShapesConfig()
 
     shapes_not_found = []
+
+    transit_routes_by_id = self::getTransitRoutesById()
+    previous_shape_id = nil
+    previous_node = nil
 
     CSV.parse(lines.join).each do |line|
       row = self.csv_line_to_row(headers, line)
@@ -119,26 +125,40 @@ class GTFS
         next
       end
 
-      if features[shape_id].nil?
-        features[shape_id] = {
-          'type' => 'Feature',
-          'properties' => {
-            'shape_id' => shape_id,
-          },
-          'geometry' => {
-            'type' => 'LineString',
-            'coordinates' => []
-          }
-        }
+      route_id = shapes_color[shape_id]['route_id']
+      route_color = shapes_color[shape_id]['route_color']
+
+      transit_routes_by_id[route_id] ||= TransitRoute.new(route_id, route_color)
+
+      node = TransitNode.new(row['shape_pt_lon'], row['shape_pt_lat'])
+      if shape_id == previous_shape_id
+        transit_routes_by_id[route_id].add_segment TransitSegment.new(previous_node, node)
       end
 
-      features[shape_id]['geometry']['coordinates'].push([row['shape_pt_lon'].to_f, row['shape_pt_lat'].to_f])    
+      previous_shape_id = shape_id
+      previous_node = node
+
+      # TODO: use stop area to merge stop points properly for each station (cross lines)
+      # grep HALLES gtfs-data/fr-idf-gtfs-rail-only/stops.txt 
+      # StopArea:OIF59208,LES HALLES,48.862015,2.346495,1,
+      # StopArea:OIF8775860,CHATELET LES HALLES,48.862257,2.346736,1,
+      # StopPoint:OIF8775860:800:D,CHATELET LES HALLES,48.861822,2.347013,,StopArea:OIF8775860
+      # StopPoint:OIF8775860:810:A,CHATELET LES HALLES,48.861822,2.347013,,StopArea:OIF8775860
+      # StopPoint:OIF8775860:810:B,CHATELET LES HALLES,48.861822,2.347013,,StopArea:OIF8775860
+    end
+
+    if is_last_batch
+      transit_routes_by_id.each do |route_id, transit_route|
+        transit_route.to_geojson_features.each_with_index do |feature, i|
+          features["#{route_id}_#{i}"] = feature
+        end
+      end
     end
 
     return features
   end
 
-  def self.stops_to_geojson(headers, lines, json, main_args)
+  def self.stops_to_geojson(headers, lines, json, is_last_batch, main_args)
     if json.nil?
       json = {
         "type" => "FeatureCollection",
@@ -205,6 +225,8 @@ class GTFS
   end
   
   def self.create_shapes_from_stops
+    stations = self::getStationsConfig()
+
     self.db_init
     
     trips = {}
@@ -212,7 +234,7 @@ class GTFS
     
     sql = 'SELECT trip_id FROM trips'
     @db.execute(sql).each do |trip_row|
-      sql = 'SELECT stops.stop_id, stop_name, stop_lon, stop_lat, arrival_time, departure_time FROM stop_times, stops WHERE trip_id = ? AND stop_times.stop_id = stops.stop_id ORDER BY stop_sequence'
+      sql = 'SELECT stops.stop_id, stop_name, stop_lon, stop_lat, stops.parent_station, arrival_time, departure_time FROM stop_times, stops WHERE trip_id = ? AND stop_times.stop_id = stops.stop_id ORDER BY stop_sequence'
       
       stop_ids = []
 
@@ -248,13 +270,34 @@ class GTFS
     return trips.values
   end
 
+  def self.getTransitRoutesById
+    @transit_routes_by_id ||= {}
+    return @transit_routes_by_id
+  end
+
+  def self.getStationsConfig
+    if @stations_config
+      return @stations_config
+    end
+
+    @stations_config = {}
+    self.db_init
+    sql = 'SELECT DISTINCT stop_id, stop_name, stop_lat, stop_lon FROM stops WHERE location_type = 1'
+
+    rows = @db.execute(sql)
+    rows.each do |row|
+      @stations_config[row['stop_id']] = row
+    end
+
+    return @stations_config
+  end
+
   def self.getRoutesConfig
     self.db_init
     sql = 'SELECT DISTINCT route_short_name, route_color,route_text_color FROM routes'
     routes = @db.execute(sql)
     return routes
   end
-
 
   def self.getShapesConfig
     if @shapes_config
@@ -264,7 +307,7 @@ class GTFS
     @shapes_config = {}
 
     self.db_init
-    sql = 'SELECT DISTINCT shape_id, trips.route_id, route_color, route_text_color FROM trips, routes WHERE trips.route_id = routes.route_id'
+    sql = 'SELECT DISTINCT shape_id, trips.route_id, route_color, route_text_color, trips.direction_id, trips.block_id FROM trips, routes WHERE trips.route_id = routes.route_id'
     
     rows = @db.execute(sql)
     rows.each do |row|

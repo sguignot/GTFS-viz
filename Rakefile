@@ -8,9 +8,12 @@ require 'sqlite3'
 import 'inc/helpers.rb'
 import 'inc/gtfs.rb'
 import 'inc/ft.rb'
+import 'inc/transit_node.rb'
+import 'inc/transit_segment.rb'
+import 'inc/transit_route.rb'
 
 # Allowed characters: letters, digits, -, _
-PROJECT_NAME = 'sfmta'
+PROJECT_NAME = 'fr-idf-gtfs-rail-only' #'ratp-gtfs' #'france-gtfs'
 # Path of the repo cloned/downloaded from https://github.com/vasile/transit-map
 PATH_TO_APP_TRANSIT_MAP = nil
 # Path of the repo cloned/downloaded from https://github.com/vasile/transit-map-route-icon
