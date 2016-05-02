@@ -13,4 +13,8 @@ class TransitSegment
 	def eql?(other)
 		self == other
 	end
+
+    def hash
+        [a.hash, b.hash].sort.hash
+    end
 end

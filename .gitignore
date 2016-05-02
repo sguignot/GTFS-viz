@@ -6,3 +6,4 @@ tmp
 client.p12
 
 Gemfile.lock
+.byebug_history

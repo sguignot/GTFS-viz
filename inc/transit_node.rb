@@ -14,7 +14,7 @@ class TransitNode
 	end
 
 	def hash
-		"#{lon},#{lat}".hash
+		[lon, lat].hash
 	end
 
 	def to_geojson_coordinates

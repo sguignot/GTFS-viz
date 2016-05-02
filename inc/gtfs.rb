@@ -102,7 +102,7 @@ class GTFS
       features = {}
     end
 
-    shapes_color = self::getShapesConfig()
+    shapes = self::getShapesConfig()
 
     shapes_not_found = []
 
@@ -119,32 +119,25 @@ class GTFS
         next
       end
 
-      if shapes_color[shape_id].nil?
+      if shapes[shape_id].nil?
         shapes_not_found.push(shape_id)
         print "Shape_id #{shape_id} not used in trips.txt !\n"
         next
       end
 
-      route_id = shapes_color[shape_id]['route_id']
-      route_color = shapes_color[shape_id]['route_color']
+      route_id = shapes[shape_id]['route_id']
+      route_color = shapes[shape_id]['route_color']
+      direction_id = shapes[shape_id]['direction_id']
 
       transit_routes_by_id[route_id] ||= TransitRoute.new(route_id, route_color)
 
       node = TransitNode.new(row['shape_pt_lon'], row['shape_pt_lat'])
       if shape_id == previous_shape_id
-        transit_routes_by_id[route_id].add_segment TransitSegment.new(previous_node, node)
+        transit_routes_by_id[route_id].add_edge(previous_node, node)
       end
 
       previous_shape_id = shape_id
       previous_node = node
-
-      # TODO: use stop area to merge stop points properly for each station (cross lines)
-      # grep HALLES gtfs-data/fr-idf-gtfs-rail-only/stops.txt 
-      # StopArea:OIF59208,LES HALLES,48.862015,2.346495,1,
-      # StopArea:OIF8775860,CHATELET LES HALLES,48.862257,2.346736,1,
-      # StopPoint:OIF8775860:800:D,CHATELET LES HALLES,48.861822,2.347013,,StopArea:OIF8775860
-      # StopPoint:OIF8775860:810:A,CHATELET LES HALLES,48.861822,2.347013,,StopArea:OIF8775860
-      # StopPoint:OIF8775860:810:B,CHATELET LES HALLES,48.861822,2.347013,,StopArea:OIF8775860
     end
 
     if is_last_batch
@@ -240,7 +233,11 @@ class GTFS
 
       db_stops = @db.execute(sql, trip_row['trip_id'])
       db_stops.each do |row|
-        stop_ids.push(row['stop_id'])
+        parent_station_id = row['parent_station']
+        parent_station = stations[parent_station_id] if parent_station_id
+        stop_id = parent_station.nil? ? row['stop_id'] : parent_station_id
+
+        stop_ids.push(stop_id)
       end
 
       trip_signature = stop_ids.join('_')
@@ -248,9 +245,13 @@ class GTFS
       if trips[trip_signature].nil?
         shape_points = []
         db_stops.each do |row|
+          parent_station_id = row['parent_station']
+          parent_station = stations[parent_station_id] if parent_station_id
+          stop = parent_station || row
+
           shape_points.push({
-            'x' => row['stop_lon'].to_f.round(6),
-            'y' => row['stop_lat'].to_f.round(6),
+            'x' => stop['stop_lon'].to_f.round(6),
+            'y' => stop['stop_lat'].to_f.round(6),
           })
         end
 
