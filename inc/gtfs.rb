@@ -128,8 +128,12 @@ class GTFS
       route_id = shapes[shape_id]['route_id']
       route_color = shapes[shape_id]['route_color']
       direction_id = shapes[shape_id]['direction_id']
+      agency_id = shapes[shape_id]['agency_id']
+      route_short_name = shapes[shape_id]['route_short_name']
+      route_long_name = shapes[shape_id]['route_long_name']
+      route_type = shapes[shape_id]['route_type']
 
-      transit_routes_by_id[route_id] ||= TransitRoute.new(route_id, route_color)
+      transit_routes_by_id[route_id] ||= TransitRoute.new(route_id, route_short_name, route_long_name, route_type, route_color, agency_id)
 
       node = TransitNode.new(row['shape_pt_lon'], row['shape_pt_lat'])
       if shape_id == previous_shape_id
@@ -308,7 +312,7 @@ class GTFS
     @shapes_config = {}
 
     self.db_init
-    sql = 'SELECT DISTINCT shape_id, trips.route_id, route_color, route_text_color, trips.direction_id, trips.block_id FROM trips, routes WHERE trips.route_id = routes.route_id'
+    sql = 'SELECT DISTINCT shape_id, trips.route_id, route_color, route_text_color, routes.agency_id, route_short_name, route_long_name, route_type, trips.direction_id, trips.block_id FROM trips, routes WHERE trips.route_id = routes.route_id'
     
     rows = @db.execute(sql)
     rows.each do |row|

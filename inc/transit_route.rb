@@ -1,8 +1,12 @@
 class TransitRoute
-	attr_reader :id, :color
-	def initialize(id, color)
+	attr_reader :id, :short_name, :long_name, :color, :route_type, :agency_id
+	def initialize(id, short_name, long_name, route_type, color, agency_id)
 		@id = id
+		@short_name = short_name
+		@long_name = long_name
+		@route_type = route_type
 		@color = color
+		@agency_id = agency_id
 		@edge_properties_map = {}
 	end
 
@@ -20,7 +24,11 @@ class TransitRoute
 				'type' => 'Feature',
 				'properties' => {
 					'route_id' => id,
-					'color' => color
+					'short_name' => short_name,
+					'long_name' => long_name,
+					'route_type' => route_type,
+					'color' => color,
+					'agency_id' => agency_id
 				},
 				'geometry' => {
 					'type' => 'LineString',
